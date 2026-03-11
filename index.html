@@ -161,12 +161,12 @@
                                 <div style="font-family: monospace; font-weight: bold; color: #00f2fe; margin-bottom: 4px;">${d.data.name}</div>
                                 <div style="line-height: 1.4;">${d.data.desc}</div>
                             `)
-                            .style("left", (event.pageX + 15) + "px")
-                            .style("top", (event.pageY - 28) + "px");
+                            .style("left", (event.clientX + 15) + "px")
+                            .style("top", (event.clientY - 28) + "px");
                         }
                     })
                     .on("mousemove", function(event) {
-                        tooltip.style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 28) + "px");
+                        tooltip.style("left", (event.clientX + 15) + "px").style("top", (event.clientY - 28) + "px");
                     })
                     .on("mouseout", function(event, d) { 
                         d3.select(this)
