@@ -183,16 +183,40 @@
             return (
                 <div className="container mx-auto px-6 py-12 max-w-[1400px] fade-in">
                     
-                    <div className="mb-12 flex justify-between items-end border-b border-gray-800 pb-6">
-                        <div className="flex-1">
-                            <h1 className="text-5xl font-extrabold text-glow tracking-tight mb-2">UAP Sequence Explorer</h1>
-                            <p className="text-[#a0aec0] text-lg font-light tracking-wide uppercase flex items-center gap-2">
-                                Decoding High-Strangeness Topologies via the Bullard Classification
-                            </p>
+                    <div className="mb-12 border-b border-gray-800 pb-6">
+                        <div className="flex justify-between items-end mb-6">
+                            <div className="flex-1">
+                                <h1 className="text-5xl font-extrabold text-glow tracking-tight mb-2">UAP Sequence Explorer</h1>
+                                <p className="text-[#a0aec0] text-lg font-light tracking-wide uppercase flex items-center gap-2">
+                                    Mapping the Architecture of Anomalous Encounters
+                                </p>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-sm text-gray-400 font-mono">DATABASE_STATUS: ONLINE</div>
+                                <div className="text-xs text-[#00f2fe] uppercase mt-1">Loaded {stats.total_encounters} Global Records</div>
+                            </div>
                         </div>
-                        <div className="text-right">
-                            <div className="text-sm text-gray-400 font-mono">DATABASE_STATUS: ONLINE</div>
-                            <div className="text-xs text-[#00f2fe] uppercase mt-1">Loaded {stats.total_encounters} Global Records</div>
+
+                        <div className="bg-black/40 border border-gray-800 rounded-lg p-6">
+                            <p className="text-white mb-4 leading-relaxed">
+                                <strong className="text-[#00f2fe]">Welcome to the UAP Matrix.</strong><br/>
+                                Are experiencers reporting the exact same anomalous sequence of events across decades? To find out, this interactive database maps the structural DNA of 333 historical anomalous encounters.
+                            </p>
+                            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">How to use this tool:</h3>
+                            <ul className="list-disc list-inside text-gray-300 space-y-2 mb-6">
+                                <li><strong className="text-white">Filter the Matrix:</strong> Use the Global Filters below to zero in on specific types of encounters (e.g., cases involving multiple witnesses).</li>
+                                <li><strong className="text-white">Explore Case Timelines:</strong> Select a case from the Explorer grid to see its full chronological "Motif Sequence"—a step-by-step telemetry breakdown.</li>
+                                <li><strong className="text-white">Discover Patterns:</strong> Scroll to the bottom to view the Relational Analytics engine, which visualizes decades of recurring anomalies.</li>
+                            </ul>
+                            
+                            <details className="cursor-pointer group outline-none">
+                                <summary className="text-xs font-bold text-[#8a2be2] hover:text-[#d4b3ff] uppercase tracking-widest flex items-center gap-2 outline-none">
+                                    <span>🔬 Read about the Academic Methodology</span>
+                                </summary>
+                                <div className="mt-4 p-4 bg-[#10162a] rounded border border-gray-700 text-sm text-gray-400 leading-relaxed cursor-default">
+                                    This relational database is actively powered by the foundational Motif Taxonomy developed by <strong>Dr. Thomas E. Bullard</strong> (who categorized thousands of anecdotal reports into core architectural sequences), and is heavily expanded through the psychiatric framework of <strong>Dr. John E. Mack</strong>.
+                                </div>
+                            </details>
                         </div>
                     </div>
 
