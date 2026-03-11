@@ -17,11 +17,11 @@ st.markdown("""
     .title-glow {
         font-size: 3rem;
         font-weight: 800;
-        background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+        background: linear-gradient(135deg, #00f2fe 0%, #8a2be2 50%, #4facfe 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         margin-bottom: -15px;
-        text-shadow: 0px 0px 20px rgba(79, 172, 254, 0.4);
+        text-shadow: 0px 0px 25px rgba(138, 43, 226, 0.5);
     }
     
     .subtitle {
@@ -44,8 +44,8 @@ st.markdown("""
     
     div[data-testid="stMetric"]:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 40px rgba(0, 242, 254, 0.15);
-        border: 1px solid rgba(0, 242, 254, 0.2);
+        box-shadow: 0 8px 40px rgba(0, 242, 254, 0.25);
+        border: 1px solid rgba(138, 43, 226, 0.5);
     }
 
     /* Customizing DataFrames */
@@ -98,10 +98,14 @@ def load_data():
             ee.Motif_Code, 
             ee.Source_Citation, 
             ee.Emotional_Marker,
-            m.current_family_header AS General_Category
+            ee.memory_state,
+            m.current_family_header AS General_Category,
+            m.motif_description AS Motif_Description
         FROM Encounter_Events ee
         LEFT JOIN Motif_Dictionary m ON ee.Motif_Code = m.motif_number
     """, conn)
+    
+    encounters_df['Date_of_Encounter'] = encounters_df['Date_of_Encounter'].astype(str)
     
     conn.close()
     return encounters_df, events_df
@@ -153,7 +157,19 @@ if not filtered_encounters.empty:
     case_events = events_df[events_df['Encounter_ID'] == case_id].sort_values('Sequence_Order')
     
     st.subheader(f"Motif Sequence for Encounter #{case_id}")
-    st.dataframe(case_events[['Sequence_Order', 'General_Category', 'Motif_Code', 'Emotional_Marker', 'Source_Citation']], use_container_width=True, hide_index=True)
+    
+    # Extract Biographical Data
+    case_info = filtered_encounters[filtered_encounters['Encounter_ID'] == case_id].iloc[0]
+    colA, colB, colC = st.columns(3)
+    colA.markdown(f"**Subject:** {case_info.get('Pseudonym', 'Unknown')}")
+    colA.markdown(f"**Source:** {case_info.get('Source_Material', 'Unknown')}")
+    colB.markdown(f"**Date:** {case_info.get('Date_of_Encounter', 'Unknown')}")
+    colB.markdown(f"**Location:** {case_info.get('Location_Type', 'Unknown')}")
+    creds = f"Inv: {case_info.get('Investigator_Credibility', 'N/A')} | Wit: {case_info.get('Witness_Credibility', 'N/A')}"
+    colC.markdown(f"**Ratings:** {creds}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.dataframe(case_events[['Sequence_Order', 'General_Category', 'Motif_Code', 'Motif_Description', 'Emotional_Marker', 'memory_state', 'Source_Citation']], use_container_width=True, hide_index=True)
 else:
     st.info("No cases match the current filters.")
 
@@ -179,7 +195,7 @@ with col1:
         
         st.write(f"When Abductees feel **{target_emotion}**, they are usually experiencing:")
         
-        chart = alt.Chart(top_motifs.head(5)).mark_bar(color='#00f2fe').encode(
+        chart = alt.Chart(top_motifs.head(5)).mark_bar(color='#8a2be2').encode(
             x=alt.X('Count:Q', title='Number of Occurrences'),
             y=alt.Y('Category:N', sort='-x', title=''),
         ).properties(height=200)
@@ -202,7 +218,7 @@ with col2:
         
         top_codes = top_codes.merge(dict_df, on='Motif_Code', how='left')
         
-        chart2 = alt.Chart(top_codes.head(6)).mark_bar(color='#4facfe').encode(
+        chart2 = alt.Chart(top_codes.head(6)).mark_bar(color='#00d2ff').encode(
             x=alt.X('Count:Q', title='Number of Occurrences'),
             y=alt.Y('Motif_Code:N', sort='-x', title='Code'),
             tooltip=['Motif_Description', 'Count']

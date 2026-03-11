@@ -13,8 +13,9 @@ class EncounterEvent(BaseModel):
     motif_code: str = Field(description="The alphanumeric Motif Code assigned to this event (e.g., 'E300'). If the event is a novel concept not covered by Bullard, assign the exact string 'ANOMALY'.")
     source_citation: str = Field(description="The exact quote from the text that justifies this motif code")
     emotional_marker: Optional[str] = Field(description="The primary emotion the subject felt during this specific action (e.g., 'Terror', 'Calm', 'Confusion'). Leave null if not mentioned.")
-    
-    pass
+    memory_state: str = Field(description="The mental state of the subject when they recalled or experienced this specific event. Choose EXACTLY one: 'conscious', 'hypnotic', or 'dream'.")
+    source_page: str = Field(description="The physical page number(s) where this event is described, derived from the [--- START PAGE X ---] markers in the text (e.g., '42' or '42-43').")
+    ai_justification: str = Field(description="A brief explanation of why this specific Motif Code was chosen for this quote.")
 
 class EncounterProfile(BaseModel):
     """
@@ -25,51 +26,30 @@ class EncounterProfile(BaseModel):
     age: Optional[str] = Field(description="The age of the subject at the time of the encounter, if known")
     date_of_encounter: Optional[str] = Field(description="The date the encounter occurred")
     location: Optional[str] = Field(description="The geographic location of the encounter")
-    investigator_credibility: str = Field(description="Rate the credibility of the investigator based on their methods (Low, Medium, High). Provide a 1-sentence justification.")
-    witness_credibility: str = Field(description="Rate the credibility of the witness based on their psychological state and consistency (Low, Medium, High). Provide a 1-sentence justification.")
+    investigator_credibility: str = Field(description="Using the Bullard scale (1-5), rate the credibility of the INVESTIGATION based on the methods used. e.g. '5' for highly reliable, '1' for hearsay.")
+    witness_credibility: str = Field(description="Using the Bullard scale (1-5), rate the credibility of the WITNESS report itself. e.g. '5' for multiple reliable witnesses, '1' for implausible story.")
     narrative_summary: str = Field(description="A brief 1-paragraph summary of the entire event")
     events: List[EncounterEvent] = Field(description="The chronological sequence of motif events in this encounter")
 
     pass
 
-if __name__ == "__main__":
-    import os
-    from google import genai
-    from google.genai import types
+import os
+import sqlite3
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
 
-    # --- RUN CONFIGURATION ---
-    # We use APA Academic Citation style to strictly track the original document.
-    # Change this whenever you scan a new book into the pipeline!
-    ACADEMIC_SOURCE_CITATION = "Mack, J. E. (1994). Abduction: Human Encounters with Aliens. Scribner."
-
-    # 1. We tell the AI about its identity and goal
-    system_instruction = """
-    You are an objective folklore database manager and investigative assistant.
-    Extract the subject metadata and break the narrative down into a chronological sequence of Motif events.
-    
-    You MUST ONLY USE the Motif Codes from the strict dictionary provided below. Do not invent codes.
-    If you are unsure, pick the closest fitting code.
-    
-    {few_shot_examples}
-    
-    BULLARD MOTIF DICTIONARY:
-    {motif_rules}
-    
-    You MUST output valid JSON matching the requested schema.
+def process_narrative(text: str, sticky_header: str, source_citation: str, case_number: str):
     """
-
-    # 1. Initialize the modern Gemini API Client
-    # It automatically looks for the GEMINI_API_KEY environment variable
+    Processes a raw UFO narrative text block through Gemini, structuring the events
+    based on the Motif Dictionary, and saves them to the ufo_matrix.db database.
+    """
+    load_dotenv()
     client = genai.Client()
-
-    # 2. Here is a totally unstructured, raw chapter from John Mack's book ("Ed" Case)
-    with open("mack_sample_text.txt", "r", encoding="utf-8") as f:
-        raw_abduction_text = f.read()
 
     # --- CHUNKING LOGIC ---
     # The ideal ingestion size for maximum detail is about 500-800 words per prompt.
-    # We split the massive text into chunks of ~3000 characters (about 500 words).
-    paragraphs = raw_abduction_text.split('\n')
+    paragraphs = text.split('\n')
     chunks = []
     current_chunk = ""
     for para in paragraphs:
@@ -81,12 +61,9 @@ if __name__ == "__main__":
     if current_chunk.strip():
         chunks.append(current_chunk)
     
-    print(f"Divided the 16-page narrative into {len(chunks)} high-detail chunks.")
+    print(f"Divided the narrative into {len(chunks)} high-detail chunks.")
 
-    # 3. We define our instructions (The Prompt)
-    import sqlite3
-    
-    # First, let's grab all 300+ real Motif Codes from your database!
+    # Grab Motif Codes from database
     motif_rules = ""
     with sqlite3.connect('ufo_matrix.db') as conn:
         cursor = conn.cursor()
@@ -94,7 +71,6 @@ if __name__ == "__main__":
         for row in cursor.fetchall():
             motif_rules += f"- {row[0]}: {row[1]}\n"
 
-    # Now we provide the Few-Shot Examples from our perfect dataset (This teaches the AI the pattern!)
     few_shot_examples = """
     *** FEW-SHOT EXAMPLE (From Case 062: Jim and Sue) ***
     If the raw text says:
@@ -110,11 +86,33 @@ if __name__ == "__main__":
     5. M119 (told the witnesses to forget)
     """
 
-    # Now we inject BOTH the dictionary AND the examples directly into the AI's "brain" for this query
     system_instruction = f"""
     You are an objective folklorist analyzing UFO abduction narratives.
     Extract the subject metadata and break the narrative down into a chronological sequence of Motif events.
     
+    CREDIBILITY SCORING RUBRIC (BULLARD SCALE 1-5):
+    You must score the Investigator and Witness credibility based on the following scale:
+    INVESTIGATION RATING:
+    5 = Highly reliable investigation.
+    4 = Probably well qualified.
+    3 = Unfamiliar investigators or personal deposition from witness.
+    2 = Report comes via good source but with no known investigation.
+    1 = Newspaper, hearsay.
+    
+    WITNESS (CASE) RATING:
+    5 = 2+ reliable witnesses testify.
+    4 = 1 reliable witness testifies.
+    3 = Witness of unknown reliability, but no reason to doubt.
+    2 = Doubtful witness or insufficient information.
+    1 = Very doubtful witness, scanty data, implausible story.
+
+    CONTEXTUAL RULES FOR CLINICAL PSYCHIATRY:
+    1. When evaluating Investigator Credibility, treat clinical psychiatric evaluation by licensed medical professionals (like Dr. John Mack) as the equivalent of a 'Highly Reliable Investigation' (Score 5), even though it is clinical rather than physical.
+    2. When evaluating Witness Credibility for single-witness events, do not penalize the score for a lack of a second witness. Instead, evaluate the witness based on their psychological consistency, intense emotional affect, and lack of overt psychopathology as documented by the clinician. A highly consistent, deeply affected solo experiencer should score a 4 or 5.
+    3. DATA PROVENANCE: Use the '[--- START PAGE X ---]' markers in the text to definitively populate the 'source_page' for each Motif.
+    4. MEMORY STATE: Determine the 'memory_state' based on context. "Under hypnosis, he recalled..." = 'hypnotic'. Screen memories experienced prior = 'conscious'.
+    5. TEMPORAL BOUNDARIES: Use the temporal boundaries in the Sticky Header to relentlessly filter out peripheral memories and extract ONLY Motifs related to the Primary Event.
+
     You MUST ONLY USE the Motif Codes from the strict dictionary provided below. Do not invent codes.
     If you are unsure, pick the closest fitting code.
     
@@ -129,7 +127,6 @@ if __name__ == "__main__":
     print("Checking Google Servers to see if Volume 1 is already Cached...")
     cached_context = None
     try:
-        # Check if we already uploaded it in the last 60 minutes!
         caches = list(client.caches.list())
         if caches:
             cached_context = caches[0]
@@ -140,19 +137,17 @@ if __name__ == "__main__":
     if not cached_context:
         print("Uploading 1,000-page Bullard Volume 1 Context Guide to Gemini API...")
         try:
-            # 4. Upload the massive PDF directly to Gemini's secure file storage.
             bullard_vol1 = client.files.upload(file=os.path.join("Sources", "Bullard, Thomas - UFO Abductions, The Measure of a Mystery - Volume 1.pdf"))
             print(f"File uploaded! File URI: {bullard_vol1.uri}")
             
-            # 5. CACHE THE FILE! This is the secret sauce.
             print("Caching the book into the AI's permanent memory...")
             cached_context = client.caches.create(
-                model='gemini-2.5-flash',
+                model='gemini-2.5-pro',
                 config=types.CreateCachedContentConfig(
                     contents=[bullard_vol1],
                     system_instruction=system_instruction,
                     display_name="bullard_vol_1_cache",
-                    ttl="3600s" # Keep it in memory for 60 minutes
+                    ttl="3600s"
                 )
             )
             print("Successfully cached!\n")
@@ -160,24 +155,21 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"File upload to Gemini failed: {e}")
             print("Please check your API key quotas or file path.")
-            exit(1)
+            return
 
-    print("Sending raw text to Gemini using the Cached Brain. Forcing it to fit our Pydantic Schema...\n")
-
-    import sqlite3
+    print("Sending raw text to Gemini using the Cached Brain...\n")
 
     all_events = []
     final_profile = None
 
-    # We process each chunk sequentially through the cached model
     for chunk_idx, chunk_text in enumerate(chunks):
         print(f"\n--- PROCESSING CHUNK {chunk_idx + 1} OF {len(chunks)} ---")
         
-        # 6. We make the API call. 
-        # Notice we pass the `chunk_text`, but we use the `cached_content` so it instantly references the 1,000-page book without reloading it!
+        payload = f"{sticky_header}\n\n[NARRATIVE CHUNK]\n{chunk_text}"
+        
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=chunk_text,
+            model='gemini-2.5-pro',
+            contents=payload,
             config=types.GenerateContentConfig(
                 cached_content=cached_context.name,
                 response_mime_type="application/json",
@@ -186,10 +178,8 @@ if __name__ == "__main__":
             ),
         )
 
-        # 7. The SDK automatically parses the JSON back into our Pydantic Object!
         profile: EncounterProfile = response.parsed
         
-        # Capture the overall subject metadata from the first chunk only
         if chunk_idx == 0:
             final_profile = profile
             
@@ -201,25 +191,25 @@ if __name__ == "__main__":
     print(f"Date: {final_profile.date_of_encounter}")
     print(f"Summary: {final_profile.narrative_summary}\n")
 
-    # Connect to database to permanently insert the data!
     with sqlite3.connect('ufo_matrix.db') as conn:
         cursor = conn.cursor()
         
-        # 1. Insert Subject Profile
+        # Determine Hypnosis state from Sticky Header dynamically
+        hypnosis_used = "YES" in sticky_header.upper()
+
         cursor.execute("""
             INSERT INTO Subjects (Pseudonym, Age, Baseline_Psychology, Hypnosis_Utilized)
             VALUES (?, ?, ?, ?)
-        """, (final_profile.pseudonym, final_profile.age, final_profile.narrative_summary, True))  # John Mack uses hypnosis frequently
+        """, (final_profile.pseudonym, final_profile.age, final_profile.narrative_summary, hypnosis_used))
         
         subject_id = cursor.lastrowid
         print(f"[*] Created Subject Record (ID: {subject_id})")
         
-        # 2. Insert Encounter Metadata
-        case_id = f"JOHN_MACK_{final_profile.pseudonym.upper() if final_profile.pseudonym else '001'}"
         cursor.execute("""
-            INSERT INTO Encounters (Subject_ID, Case_Number, Date_of_Encounter, Location_Type, Conscious_Recall, Investigator_Credibility, Witness_Credibility, Source_Material)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (subject_id, case_id, final_profile.date_of_encounter, final_profile.location, False, final_profile.investigator_credibility, final_profile.witness_credibility, ACADEMIC_SOURCE_CITATION))
+            INSERT INTO Encounters (Subject_ID, Case_Number, Date_of_Encounter, Location_Type, Conscious_Recall, Investigator_Credibility, Witness_Credibility, Source_Material, is_hypnosis_used)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (subject_id, case_number, final_profile.date_of_encounter, final_profile.location, not hypnosis_used, final_profile.investigator_credibility, final_profile.witness_credibility, source_citation, hypnosis_used))
+
         
         encounter_id = cursor.lastrowid
         print(f"[*] Created Encounter Record (ID: {encounter_id})")
@@ -230,19 +220,16 @@ if __name__ == "__main__":
         last_chunk_sequence = -1
         
         for event in all_events:
-            # Stutter protection within the same apparent sequence block
             if event.motif_code == last_code_printed and event.sequence_order == last_chunk_sequence:
                 continue
                 
             last_code_printed = event.motif_code
             
-            # If the AI advanced its chunk sequence order, we advance our global continuous sequence
             if event.sequence_order != last_chunk_sequence:
                 if last_chunk_sequence != -1:
                     global_sequence += 1
                 last_chunk_sequence = event.sequence_order
 
-            # Look up description for console print
             if event.motif_code == "ANOMALY":
                 description = "[[NOVEL CONCEPT - NOT IN BULLARD]]"
             else:
@@ -250,21 +237,26 @@ if __name__ == "__main__":
                 result = cursor.fetchone()
                 description = result[0] if result else "[[WARNING: AI HALLUCINATED FAKE CODE]]"
             
-            # 3. Permanently insert the isolated Event into the SQL Junction Table!
             try:
                 cursor.execute("""
-                    INSERT INTO Encounter_Events (Encounter_ID, Sequence_Order, Motif_Code, Emotional_Marker, Source_Citation)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (encounter_id, global_sequence, event.motif_code, event.emotional_marker, event.source_citation))
+                    INSERT INTO Encounter_Events (Encounter_ID, Sequence_Order, Motif_Code, Emotional_Marker, Source_Citation, memory_state, source_page, ai_justification)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (encounter_id, global_sequence, event.motif_code, event.emotional_marker, event.source_citation, event.memory_state, event.source_page, event.ai_justification))
                 
                 emotion_str = f"Emotion: {event.emotional_marker}" if event.emotional_marker else "No explicit emotion"
-                print(f"[{global_sequence}] DATABASE INSERT -> {event.motif_code}: {description}")
-                print(f"    {emotion_str}")
-                print(f"    Quote: '{event.source_citation}'\n")
+                
+                # Sanitize output for Windows terminal, ignoring unmappable unicode characters from PDF artifacts
+                safe_desc = description.encode('cp1252', errors='ignore').decode('cp1252')
+                safe_quote = event.source_citation.encode('cp1252', errors='ignore').decode('cp1252')
+                safe_logic = event.ai_justification.encode('cp1252', errors='ignore').decode('cp1252')
+
+                print(f"[{global_sequence}] DATABASE INSERT -> {event.motif_code}: {safe_desc}")
+                print(f"    Page {event.source_page} | State: {event.memory_state.upper()} | {emotion_str}")
+                print(f"    Quote: '{safe_quote}'")
+                print(f"    AI Logic: {safe_logic}\n")
                 
             except sqlite3.IntegrityError:
-                # Our strict Database Foreign Keys automatically reject hallucinations!
                 print(f"    [X] DB REJECTED HALLUCINATED CODE: {event.motif_code}")
 
         conn.commit()
-        print(f"\n[!!!] Phase 5 Complete: Successfully wrote all validated events directly into ufo_matrix.db!")
+        print(f"\n[!!!] Phase 9 Complete: Successfully wrote all validated events directly into ufo_matrix.db!")

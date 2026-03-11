@@ -11,6 +11,12 @@ cursor = conn.cursor()
 
 print(f"Connected to database: {db_path}")
 
+# DROP all tables safely to avoid baseline ghost rows
+cursor.execute('DROP TABLE IF EXISTS Encounter_Events')
+cursor.execute('DROP TABLE IF EXISTS Encounters')
+cursor.execute('DROP TABLE IF EXISTS Subjects')
+cursor.execute('DROP TABLE IF EXISTS Motif_Dictionary')
+
 # 2. Build the Tables using our Schema
 # We read the schema.sql file we just created and run it against the database.
 # This creates the Subjects, Encounters, Motif_Dictionary, and Encounter_Events tables.

@@ -1,147 +1,128 @@
 import pdfplumber
 import sqlite3
-import re
+import json
 import os
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
+from typing import Optional
+from dotenv import load_dotenv
 
-# Connect to the database
+load_dotenv()
+
+class BullardCase(BaseModel):
+    case_number: str = Field(description="The 3-digit Case Number (e.g. '001', '049'). Include letters if present (e.g. '004a'). Fix OCR typos like '061' to '051' based on contextual logical sequence. NEVER skip a case.")
+    pseudonym: str = Field(description="The name or pseudonym of the subject(s). Clean OCR typos ('1' or 'l' instead of 'I'). Remove ages or numbers in parentheses/brackets (e.g. '<22>').")
+    age: Optional[str] = Field(description="The age of the subject at the time of the encounter. Extract numbers inside brackets/parentheses like '<22>' -> '22'. If it says 'age cl7', output '17'. Fix OCR 'O' to '0'.")
+    date_of_encounter: Optional[str] = Field(description="The date of the encounter, e.g. '1950', 'Spring 1973', 'October 9, 1967'. Fix OCR like 'ct959' -> '1959', 'OeceMber' -> 'December'. DO NOT include locations here.")
+    location: Optional[str] = Field(description="The geographic location of the encounter. DO NOT include dates here.")
+    investigator_credibility: Optional[str] = Field(description="The first number in 'Rating: X(Y)'. It must be 1-5. Append '/5'. e.g. '5/5'. If missing, output null.")
+    witness_credibility: Optional[str] = Field(description="The number in parentheses in 'Rating: X(Y)'. It must be 1-5. Append '/5'. e.g. '4/5'. If missing, output null.")
+
+class CaseList(BaseModel):
+    cases: list[BullardCase] = Field(description="List of all chronological cases extracted from the current text chunk.")
+
+client = genai.Client()
 conn = sqlite3.connect('ufo_matrix.db')
 cursor = conn.cursor()
 
 pdf_path = "Sources/Bullard, Thomas - UFO Abductions, The Measure of a Mystery - Volume 2.pdf"
 
-print("Starting Pass 1: Parsing Bullard Vol 2 case metadata...")
+print("Extracting structured Case Metadata from PDF using Gemini 3.0 Pro...")
 
-# Clear out any old data from previous runs (but leave Motif_Dictionary alone)
-cursor.execute("DELETE FROM Encounter_Events")
-cursor.execute("DELETE FROM Encounters")
-cursor.execute("DELETE FROM Subjects")
-# Reset the AUTOINCREMENT counters back to 1
-cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('Encounter_Events', 'Encounters', 'Subjects')")
-conn.commit()
+# We know cases 1 to 270 span from page 20 to 258
+START_PAGE = 20
+END_PAGE = 258
+CHUNK_SIZE = 40
 
-# We will read from page 20 to the end of the document
-raw_text = ""
-print("Extracting text from PDF (this might take a minute)...")
+# Get all target pages text into memory first
+pages_text = []
 with pdfplumber.open(pdf_path) as pdf:
-    for page in pdf.pages[20:]: # Pages 21 onwards
-        text = page.extract_text()
-        if text:
-            # We add a newline to preserve the visual structure
-            raw_text += text + "\n"
+    for i in range(START_PAGE, END_PAGE):
+        ptxt = pdf.pages[i].extract_text()
+        if ptxt:
+            pages_text.append(f"[--- START PAGE {i} ---]\n" + ptxt)
 
-print("Text extracted. Parsing cases...")
+all_cases = []
 
-# Variables to keep track of our state as we read line-by-line
-current_subject_id = None
-current_encounter_id = None
+# Process in chunks to prevent token overflow while giving max context
+for i in range(0, len(pages_text), CHUNK_SIZE):
+    chunk_text = "\n".join(pages_text[i:i+CHUNK_SIZE])
+    print(f"Processing chunk {(i // CHUNK_SIZE) + 1} of {(len(pages_text) // CHUNK_SIZE) + 1}...")
+    
+    prompt = f"""You are a precise data extraction engine processing a horribly OCR-corrupted encyclopedia of UFO abduction cases.
+    
+Extract EVERY SINGLE case header in this text.
+The cases are numbered progressively (001, 002... up to 270). Some have subcases (004a, 004b).
+Each case starts with a header following this schema:
+[Case Number]. [Pseudonym] / [Age if present] / [Date] / [Location]
 
-# Regex patterns
-# We keep this strict to avoid false positives (like body text that happens to start with 3 digits)
-# We add an optional [a-z] to handle multi-part cases like 180a, 180b, etc.
-case_start_pattern = re.compile(r'^(\d{3}[a-z]?)\.\s+(.*)')
+Followed later by an Investigation 'Rating: X(Y)' where X is Investigator Credibility and Y is Witness Credibility.
 
-lines = raw_text.split('\n')
-parsed_count = 0
+CRITICAL INSTRUCTIONS:
+1. Extract ALL sequentially numbered cases. Do not stop early. Do not summarize.
+2. Fix sequence numbering OCR typos contextually. If the previous case was 050, and this one says '061', it is actually 051.
+3. If a value does not exist for a case, return null. Do not hallucinate or guess.
 
-for line in lines:
-    line = line.strip()
-    if not line:
-        continue
+RAW TEXT CHUNK:
+{chunk_text}
+"""
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-pro',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=CaseList,
+                temperature=0.0
+            )
+        )
+        data = json.loads(response.text)
+        chunk_cases = data.get('cases', [])
+        all_cases.extend(chunk_cases)
+        for c in chunk_cases:
+            print(f"[{c.get('case_number')}] Extracted: {c.get('pseudonym')} | {c.get('location')} | Creds: {c.get('investigator_credibility')}, {c.get('witness_credibility')}")
+            
+    except Exception as e:
+        print(f"Error processing chunk: {e}")
 
-    # Initialize variables to see if we found a case header
-    case_num = None
-    raw_header = None
+# Database logic to insert cases
+print(f"Successfully extracted {len(all_cases)} total cases. Injecting into Database...")
 
-    # Handle the two specific OCR catastrophic failures first: Case 51 and Case 62
-    if line.startswith('O.Sl. '):
-        case_num = '051'
-        raw_header = line[6:].strip()
-    elif line.startswith('OG2. '):
-        case_num = '062'
-        raw_header = line[5:].strip()
-    elif line.startswith('62. JiM'):
-        case_num = '062'
-        raw_header = line[4:].strip()
-    elif line.startswith('061. Carlos'):
-        case_num = '051'
-        raw_header = line[4:].strip()
+for data in all_cases:
+    case_num = data.get('case_number')
+    pseudonym = data.get('pseudonym')
+    
+    # Generic pseudonym check
+    is_generic = False
+    if pseudonym and any(term in pseudonym.lower() for term in ['anonymous', 'unknown', '----']):
+        is_generic = True
+        
+    row = None
+    if not is_generic:
+        cursor.execute("SELECT Subject_ID FROM Subjects WHERE Pseudonym = ?", (pseudonym,))
+        row = cursor.fetchone()
+    
+    if row:
+        subject_id = row[0]
     else:
-        # Standard regex check for everyone else
-        case_match = case_start_pattern.match(line)
-        if case_match:
-            case_num = case_match.group(1)
-            raw_header = case_match.group(2).strip()
-
-    if case_num and raw_header:
-        # The header is split by the 'I' or '|' or 'l' or '1' character surrounded by spaces
-        # e.g., "001. Dr. Geis I age 7, 16 I 1950, ct959 I Brooklyn, Wurtsboro, N.Y."
-        parts = re.split(r'\s+[I\|l1]\s+', raw_header)
+        cursor.execute("INSERT INTO Subjects (Pseudonym, Age) VALUES (?, ?)", 
+                      (pseudonym, data.get('age')))
+        subject_id = cursor.lastrowid
         
-        subject_name = parts[0].strip()
-        
-        # Apply specific OCR fixes to the subject name based on user feedback
-        subject_name = subject_name.replace('or. 6eis', 'Dr. Geis')
-        subject_name = subject_name.replace('6e', 'Ge')
-        subject_name = subject_name.replace('6ermany', 'Germany')
-        
-        age = None
-        date = None
-        location = None
-        
-        # Basic heuristic to distribute Age, Date, Location based on the number of 'parts'
-        if len(parts) >= 4:
-            age = parts[1].strip()
-            date = parts[2].strip()
-            location = " ".join(parts[3:]).strip()
-        elif len(parts) == 3:
-            location = parts[2].strip()
-            middle = parts[1].strip()
-            # Try to guess if the middle part is an age or a date
-            if 'age' in middle.lower() or '<' in middle or '(' in middle:
-                age = middle
-            else:
-                date = middle
-        elif len(parts) == 2:
-            location = parts[1].strip()
-        # 1. Insert into Subjects table
-        cursor.execute("INSERT INTO Subjects (Pseudonym, Age) VALUES (?, ?)", (subject_name, age))
-        current_subject_id = cursor.lastrowid
-        
-        # Add the expected Case_Number column if it doesn't already exist from the old schema
-        try:
-             cursor.execute("ALTER TABLE Encounters ADD COLUMN Case_Number VARCHAR")
-        except sqlite3.OperationalError:
-             pass # Column already exists
-             
-        # 2. Insert into Encounters table
-        cursor.execute("INSERT INTO Encounters (Subject_ID, Case_Number, Date_of_Encounter, Location_Type) VALUES (?, ?, ?, ?)", (current_subject_id, case_num, date, location))
-        current_encounter_id = cursor.lastrowid
-        
-        parsed_count += 1
-        
-        # Stop at exactly 270 cases as per the blueprint
-        if parsed_count == 270:
-            break
-
-# Commit the database changes
-conn.commit()
-
-# --- DEMONSTRATION OF DATABASE RESULTS ---
-print("\n========================================")
-print(f"DATABASE PARSING RESULTS ({parsed_count} CASES)")
-print("========================================")
-
-cursor.execute('''
-    SELECT e.Encounter_ID, s.Pseudonym, s.Age, e.Date_of_Encounter, e.Location_Type
-    FROM Subjects s
-    JOIN Encounters e ON s.Subject_ID = e.Subject_ID
-    ORDER BY e.Encounter_ID
-    LIMIT 20
-''')
-
-rows = cursor.fetchall()
-for r in rows:
-    print(f"[{r[0]}] Name: {r[1]} | Age: {r[2]} | Date: {r[3]} | Loc: {r[4]}")
-print(f"... and {parsed_count - 20} more.")
+    try:
+         cursor.execute("ALTER TABLE Encounters ADD COLUMN Source_Material VARCHAR")
+    except sqlite3.OperationalError:
+         pass
+         
+    cursor.execute('''
+        INSERT INTO Encounters 
+        (Subject_ID, Case_Number, Date_of_Encounter, Location_Type, Investigator_Credibility, Witness_Credibility, Source_Material, is_hypnosis_used) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (subject_id, case_num, data.get('date_of_encounter'), data.get('location'), 
+          data.get('investigator_credibility'), data.get('witness_credibility'),
+          "Bullard, Thomas - UFO Abductions, The Measure of a Mystery - Volume 2.pdf", None))
+    conn.commit()
 
 conn.close()
+print("Phase 1 Metadata Ingestion Complete!")

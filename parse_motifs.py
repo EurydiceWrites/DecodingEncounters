@@ -1,166 +1,137 @@
 import pdfplumber
 import sqlite3
-import re
+import json
+import time
+from google import genai
+from google.genai import types
+from google.genai.errors import APIError
+from dotenv import load_dotenv
 
-# Connect to the database
+load_dotenv()
+client = genai.Client()
 conn = sqlite3.connect('ufo_matrix.db')
 cursor = conn.cursor()
 
-pdf_path = "Sources/Bullard, Thomas - UFO Abductions, The Measure of a Mystery - Volume 2.pdf"
-
-print("Starting Pass 2: Parsing Bullard Vol 2 for Motif Sequences...")
-
-# We will read from page 20 to the end of the document
-raw_text = ""
-print("Extracting text from PDF (this might take a minute)...")
-with pdfplumber.open(pdf_path) as pdf:
-    for page in pdf.pages[20:]:
-        text = page.extract_text()
-        if text:
-            # We add a newline to preserve the visual structure
-            raw_text += text + "\n"
-
-print("Text extracted. Linking Motif Codes to Encounters...")
-
-# Variables to keep track of our state as we read line-by-line
-current_encounter_id = None
-sequence_counter = 1
-
-# Regex patterns
-# To know which case we are currently inside.
-case_start_pattern = re.compile(r'^(\d{3}[a-z]?)\.\s+(.*)')
-
-lines = raw_text.split('\n')
-motifs_added = 0
-
-for line in lines:
-    line = line.strip()
-    if not line:
-        continue
-
-    # Check if this line is the start of a new case
-    case_num_str = None
-    
-    # Handle the two specific OCR catastrophic failures first: Case 51 and Case 62
-    if line.startswith('O.Sl. '):
-        case_num_str = '051'
-    elif line.startswith('OG2. '):
-        case_num_str = '062'
-    else:
-        case_match = case_start_pattern.match(line)
-        if case_match:
-            case_num_str = case_match.group(1)
-            
-    if case_num_str:
-        # We found a case boundary! We need to look up its Encounter_ID
-        # In our database, Encounter_ID is 1 to 270 matching the parsed order.
-        # But to be safe, let's just query it based on the order it was inserted.
-        pass
-
-for line in lines:
-    line = line.strip()
-    if not line:
-        continue
-
-    # Check if this line is the start of a new case
-    is_new_case = False
-    parsed_case_num = None
-    
-    if line.startswith('O.Sl. '):
-        is_new_case = True
-        parsed_case_num = '051'
-    elif line.startswith('OG2. '):
-        is_new_case = True
-        parsed_case_num = '062'
-    elif line.startswith('62. JiM'):
-        is_new_case = True
-        parsed_case_num = '062'
-    elif line.startswith('061. Carlos'):
-        is_new_case = True
-        parsed_case_num = '051'
-    else:
-        case_match = case_start_pattern.match(line)
-        if case_match:
-            is_new_case = True
-            parsed_case_num = case_match.group(1)
-            
-    if is_new_case and parsed_case_num:
-        # Instead of risking an offset with a simple index counter, we query the exact Case_Number from the database!
-        cursor.execute("SELECT Encounter_ID FROM Encounters WHERE Case_Number = ?", (parsed_case_num,))
-        result = cursor.fetchone()
-        
-        if result:
-            current_encounter_id = result[0]
-        else:
-            print(f"WARNING: Found case '{parsed_case_num}' in PDF but not in Database!")
-            current_encounter_id = None
-            
-        sequence_counter = 1
-        continue
-
-    # If we are currently inside a case, we scan for Motif Codes on the left margin
-    if current_encounter_id:
-        
-        # Check for OCR spaces inside motifs like "Al 10" -> "A110"
-        space_motif_match = re.match(r'^([A-Z][lIOSZB])\s+(\d{1,3})(.*)', line)
-        if space_motif_match:
-            line = space_motif_match.group(1) + space_motif_match.group(2) + " " + space_motif_match.group(3).strip()
-            
-        # Does the line start with something that looks like a motif code (Any capital letter, 8, or 5)?
-        if len(line) > 4 and line[0] in "ABCDEFGHIJKLMNOPQRSTUVWXYZ85" and (" " in line or "-" in line):
-            first_word = line.split(" ")[0].split("-")[0]
-            # Clean up OCR: 8 -> B, 5 -> S
-            clean_word = first_word.replace('8', 'B').replace('5', 'S')
-            
-            # Sometime multiple codes are listed together separated by commas: "B300,B340."
-            individual_codes = clean_word.split(',')
-            
-            cleaned_codes = []
-            for code in individual_codes:
-                # Fix the OCR within the code like B36S -> B365 and E20S -> E205 and S0 -> 50
-                m = re.match(r'^([A-Z])(.*)', code)
-                if m:
-                    first_letter = m.group(1)
-                    rest = m.group(2)
-                    rest = rest.split('.')[0] # Strip trailing words
-                    rest = rest.translate(str.maketrans('lIOSZB', '110528'))
-                    clean_code = first_letter + rest
-                    
-                    if re.match(r'^[A-Z]\d{1,3}', clean_code):
-                        cleaned_codes.append(clean_code)
-            
-            if cleaned_codes:
-                quote = line.split(" ", 1)
-                quote = quote[1] if len(quote) > 1 else ""
-                
-                for code in cleaned_codes:
-                        cursor.execute('''
-                            INSERT INTO Encounter_Events (Encounter_ID, Motif_Code, Sequence_Order, Source_Citation)
-                            VALUES (?, ?, ?, ?)
-                        ''', (current_encounter_id, code, sequence_counter, quote))
-                        sequence_counter += 1
-                        motifs_added += 1
-
-# Commit the database changes
+# Clear existing regex motifs so we don't duplicate
+cursor.execute("DELETE FROM Encounter_Events")
+cursor.execute("UPDATE sqlite_sequence SET seq = 0 WHERE name = 'Encounter_Events'")
 conn.commit()
 
-# --- DEMONSTRATION OF DATABASE RESULTS ---
-print("\n========================================")
-print(f"PASS 2 COMPLETE. LOGGED {motifs_added} MOTIF SEQUENCES ACROSS 270 ENCOUNTERS.")
-print("========================================")
+pdf_path = "Sources/Bullard, Thomas - UFO Abductions, The Measure of a Mystery - Volume 2.pdf"
 
-cursor.execute('''
-    SELECT s.Pseudonym, ev.Sequence_Order, ev.Motif_Code
-    FROM Subjects s
-    JOIN Encounters e ON s.Subject_ID = e.Subject_ID
-    JOIN Encounter_Events ev ON e.Encounter_ID = ev.Encounter_ID
-    ORDER BY e.Encounter_ID, ev.Sequence_Order
-    LIMIT 20
-''')
+print("Loading PDF for LLM Motif extraction with Memory States...")
+START_PAGE = 20
+END_PAGE = 258
 
-rows = cursor.fetchall()
-for r in rows:
-    print(f"[{r[0]}] Sequence {r[1]}: {r[2]}")
-print(f"... and {motifs_added - 20} more sequences.")
+pages_text = []
+with pdfplumber.open(pdf_path) as pdf:
+    for i in range(START_PAGE, END_PAGE):
+        ptxt = pdf.pages[i].extract_text()
+        if ptxt:
+            pages_text.append(f"[--- START PAGE {i} ---]\n" + ptxt)
 
+all_events = []
+CHUNK_SIZE = 2
+CONTEXT_SIZE = 1
+
+for i in range(0, len(pages_text), CHUNK_SIZE):
+    start_context = max(0, i - CONTEXT_SIZE)
+    context_text = "\n".join(pages_text[start_context:i])
+    extraction_text = "\n".join(pages_text[i:i + CHUNK_SIZE])
+    
+    print(f"Processing pages {i+START_PAGE} to {i+START_PAGE+CHUNK_SIZE} ...")
+    
+    prompt = f"""You are a precise data extraction engine processing a horribly OCR-corrupted encyclopedia of UFO abduction cases.
+    
+The motifs appear on the left margin, e.g. 'E200', 'B350'. They are sometimes corrupted (e.g. '8200' -> 'B200', 'S00' -> '500'). Apply logical fixes.
+Some lines have multiple motifs separated by commas like 'E315,U501'. Extract EACH as a separate JSON object.
+
+CRITICAL INSTRUCTIONS:
+1. Extract ALL motifs presented in the 'TEXT TO EXTRACT FROM' block in exact chronological order.
+2. Link every motif to its correct 'case_number'.
+3. DO NOT extract motifs that ONLY appear in the 'PREVIOUS CONTEXT' block.
+4. If a quote is missing or unclear, provide the surrounding sentence text verbatim as the source_citation.
+5. YOU MUST RETURN ONLY A VALID JSON ARRAY OF OBJECTS containing keys: "case_number", "motif_code", "source_citation", "source_page", "memory_state".
+6. For "memory_state", extensively analyze the context and classify the recall as "conscious", "hypnosis", "dream", or "unknown". Look for words like "Under hypnosis", "dreamt", or normal narrative.
+
+=== PREVIOUS CONTEXT (READ-ONLY FOR CASE HEADER MATCHING) ===
+{context_text}
+
+=== TEXT TO EXTRACT FROM ===
+{extraction_text}
+"""
+    
+    success = False
+    retries = 3
+    while not success and retries > 0:
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.5-pro',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.0
+                )
+            )
+            data = json.loads(response.text)
+            motifs = data if isinstance(data, list) else data.get('motifs', [])
+            all_events.extend(motifs)
+            print(f"-> Extracted {len(motifs)} motifs. memory_state correctly analyzed.")
+            success = True
+            time.sleep(4) # 15 RPM = 1 request every 4 seconds standard
+            
+        except APIError as e:
+            if hasattr(e, 'code') and e.code == 429:
+                print(f"Rate capacity hit. Sleeping for 45s to clear standard quota... ({retries} retries left)")
+                time.sleep(45)
+                retries -= 1
+            elif '429' in str(e):
+                print(f"Rate limit hit. Sleeping for 45 seconds... ({retries} retries left)")
+                time.sleep(45)
+                retries -= 1
+            else:
+                print(f"API Error processing chunk: {e}")
+                break
+        except Exception as e:
+            if '429' in str(e):
+                print(f"Rate limit Exception hit. Sleeping for 45 seconds... ({retries} retries left)")
+                time.sleep(45)
+                retries -= 1
+            else:
+                print(f"Error processing chunk: {e}")
+                break
+
+print(f"Successfully extracted {len(all_events)} total motifs. Injecting into Database...")
+
+sequence_dict = {}
+cursor.execute("SELECT motif_number FROM Motif_Dictionary")
+valid_motifs = {row[0] for row in cursor.fetchall()}
+
+motifs_logged = 0
+for m in all_events:
+    c_num = m.get('case_number')
+    m_code = m.get('motif_code')
+    
+    if not m_code or m_code not in valid_motifs: 
+        continue
+
+    cursor.execute("SELECT Encounter_ID FROM Encounters WHERE Case_Number = ?", (c_num,))
+    result = cursor.fetchone()
+    if not result:
+        continue
+    eid = result[0]
+    
+    if eid not in sequence_dict:
+        sequence_dict[eid] = 1
+    seq = sequence_dict[eid]
+    sequence_dict[eid] += 1
+    
+    cursor.execute('''
+        INSERT INTO Encounter_Events (Encounter_ID, Motif_Code, Sequence_Order, Source_Citation, source_page, memory_state, ai_justification)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (eid, m_code, seq, m.get('source_citation'), str(m.get('source_page')), m.get('memory_state'), 'LLM Structured Extraction'))
+    motifs_logged += 1
+
+conn.commit()
 conn.close()
+print(f"Phase 2 LLM Ingestion Complete. {motifs_logged} motifs logged with full memory_state context.")

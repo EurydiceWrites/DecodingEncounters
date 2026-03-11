@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS Encounters (
     Conscious_Recall BOOLEAN,
     Investigator_Credibility VARCHAR,
     Witness_Credibility VARCHAR,
+    Source_Material VARCHAR,
+    is_hypnosis_used BOOLEAN,
     FOREIGN KEY (Subject_ID) REFERENCES Subjects(Subject_ID)
 );
 
@@ -40,6 +42,9 @@ CREATE TABLE IF NOT EXISTS Encounter_Events (
     Motif_Code VARCHAR NOT NULL,
     Emotional_Marker VARCHAR,
     Source_Citation TEXT, 
+    memory_state VARCHAR,
+    source_page VARCHAR,
+    ai_justification TEXT,
     FOREIGN KEY (Encounter_ID) REFERENCES Encounters(Encounter_ID),
     FOREIGN KEY (Motif_Code) REFERENCES Motif_Dictionary(Motif_Code)
 );

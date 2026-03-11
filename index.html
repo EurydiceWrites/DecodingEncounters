@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UFO Matrix Explorer Pro</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #03050a;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+
+        .bg-mystic {
+            background: radial-gradient(circle at 50% 0%, rgba(30, 10, 60, 0.4) 0%, rgba(3, 5, 10, 1) 70%);
+        }
+
+        .text-glow {
+            background: linear-gradient(135deg, #00f2fe 0%, #8a2be2 50%, #4facfe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0px 0px 25px rgba(138, 43, 226, 0.4);
+        }
+
+        .glass-card {
+            background: rgba(16, 22, 42, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(138, 43, 226, 0.15);
+            border-radius: 16px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .glass-card:hover { border: 1px solid rgba(0, 242, 254, 0.3); box-shadow: 0 8px 40px rgba(0, 242, 254, 0.1); }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0a0e17; }
+        ::-webkit-scrollbar-thumb { background: #2a324b; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4facfe; }
+
+        .fade-in { animation: fadeIn 0.8s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .heat-cell {
+            transition: all 0.2s;
+        }
+        .heat-cell:hover {
+            transform: scale(1.1);
+            z-index: 10;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.5);
+        }
+    </style>
+</head>
+<body class="bg-mystic min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const Dashboard = () => {
+            const [stats, setStats] = useState({ total_encounters: 0, total_events: 0 });
+            const [architecture, setArchitecture] = useState([]);
+            const [cases, setCases] = useState([]);
+            const [heatmap, setHeatmap] = useState([]);
+            
+            const [selectedCase, setSelectedCase] = useState(null);
+            const [sequence, setSequence] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            // Filters
+            const [filterMulti, setFilterMulti] = useState(false);
+            const [filterMotif, setFilterMotif] = useState("ALL");
+            const [filterHypnosis, setFilterHypnosis] = useState(false);
+
+            useEffect(() => {
+                const fetchData = async () => {
+                    try {
+                        const [statsRes, archRes, casesRes, heatRes] = await Promise.all([
+                            fetch('http://127.0.0.1:5000/api/stats'),
+                            fetch('http://127.0.0.1:5000/api/architecture'),
+                            fetch('http://127.0.0.1:5000/api/cases'),
+                            fetch('http://127.0.0.1:5000/api/heatmap')
+                        ]);
+                        
+                        setStats(await statsRes.json());
+                        setArchitecture(await archRes.json());
+                        setCases(await casesRes.json());
+                        setHeatmap(await heatRes.json());
+                        setLoading(false);
+                    } catch (error) {
+                        console.error("Failed to connect:", error);
+                    }
+                };
+                fetchData();
+            }, []);
+
+            const loadSequence = async (encounter_id) => {
+                const res = await fetch(`http://127.0.0.1:5000/api/sequence/${encounter_id}`);
+                const data = await res.json();
+                setSequence(data);
+                setSelectedCase(cases.find(c => c.Encounter_ID === encounter_id));
+            };
+
+            const formatCategory = (cat) => cat.split('--')[1].replace('.', '').trim();
+
+            const uniqueCategories = useMemo(() => {
+                return ["ALL", ...Array.from(new Set(architecture.map(a => a.full_category)))];
+            }, [architecture]);
+
+            const filteredCases = useMemo(() => {
+                return cases.filter(c => {
+                    if (filterMulti && c.num_subjects < 2) return false;
+                    if (filterHypnosis && c.hypnosis !== 1) return false;
+                    if (filterMotif !== "ALL" && !c.motifs_present.includes(filterMotif)) return false;
+                    return true;
+                });
+            }, [cases, filterMulti, filterMotif, filterHypnosis]);
+
+            // Group heatmap by decade and sort decades chronologically
+            const heatmapGrouped = useMemo(() => {
+                const grouped = {};
+                heatmap.forEach(h => {
+                    if (!grouped[h.decade]) grouped[h.decade] = [];
+                    grouped[h.decade].push(h);
+                });
+                return Object.keys(grouped).sort().map(dec => ({
+                    decade: dec,
+                    data: grouped[dec].sort((a,b) => b.count - a.count)
+                }));
+            }, [heatmap]);
+
+            if (loading) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen">
+                        <div className="animate-pulse text-[#00d2ff] text-2xl font-bold tracking-widest text-glow">
+                            CALIBRATING MATRIX FILTERS...
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="container mx-auto px-6 py-12 max-w-7xl fade-in">
+                    
+                    <div className="mb-12 flex justify-between items-end">
+                        <div className="flex-1">
+                            <h1 className="text-5xl font-extrabold text-glow tracking-tight mb-2">The Anomaly Taxonomy</h1>
+                            <p className="text-[#a0aec0] text-lg font-light tracking-wide uppercase flex items-center gap-2">
+                                Decoding Encounters Using the Bullard Motif Architecture
+                            </p>
+                        </div>
+                        <div className="text-right">
+                            <div className="text-sm text-gray-400 font-mono">DATABASE_STATUS: ONLINE</div>
+                            <div className="text-xs text-[#00f2fe] uppercase mt-1">Loaded {stats.total_encounters} Global Records</div>
+                        </div>
+                    </div>
+
+                    {/* NEW FILTERS ENGINE */}
+                    <div className="glass-card p-6 mb-12 flex flex-wrap gap-4 items-center">
+                        <div className="font-bold text-gray-300 w-full mb-2 uppercase tracking-widest text-sm border-b border-gray-800 pb-2">
+                            Global Matrix Filters
+                        </div>
+
+                        <button 
+                            onClick={() => setFilterMulti(!filterMulti)}
+                            className={`px-4 py-2 rounded-full text-sm font-bold border transition-colors ${filterMulti ? 'bg-[#8a2be2] text-white border-[#8a2be2] shadow-[0_0_15px_rgba(138,43,226,0.5)]' : 'bg-transparent text-gray-400 border-gray-700 hover:border-gray-400'}`}
+                        >
+                            👨‍👩‍👧‍👦 Multiple Experiencers Only
+                        </button>
+                        
+                        <button 
+                            onClick={() => setFilterHypnosis(!filterHypnosis)}
+                            className={`px-4 py-2 rounded-full text-sm font-bold border transition-colors ${filterHypnosis ? 'bg-[#00f2fe] text-gray-900 border-[#00f2fe] shadow-[0_0_15px_rgba(0,242,254,0.5)]' : 'bg-transparent text-gray-400 border-gray-700 hover:border-gray-400'}`}
+                        >
+                            🌀 Requires Hypnosis
+                        </button>
+
+                        <div className="flex items-center border border-gray-700 rounded-full px-4 py-2 bg-black/30 w-full md:w-auto mt-2 md:mt-0">
+                            <span className="text-sm font-bold text-gray-400 mr-2">Core Motif Contains:</span>
+                            <select 
+                                className="bg-transparent text-white outline-none text-sm cursor-pointer appearance-none max-w-[200px]"
+                                value={filterMotif}
+                                onChange={(e) => setFilterMotif(e.target.value)}
+                            >
+                                {uniqueCategories.map(c => (
+                                    <option key={c} value={c} className="bg-gray-900">{c === "ALL" ? "Show Everything" : formatCategory(c)}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* NEW HEATMAP GRAPHIC */}
+                    <div className="glass-card mb-12 p-8">
+                        <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-3">
+                            Chronological Motif Heatmap 
+                            <span className="bg-[#8a2be2]/20 text-[#8a2be2] text-xs px-2 py-1 rounded border border-[#8a2be2]/50">BETA FEATURE</span>
+                        </h2>
+                        <p className="text-gray-400 text-sm mb-6">Visualizing how encounter architecture shifts across decades.</p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            {heatmapGrouped.filter(d => parseInt(d.decade) > 1920).map((decData, i) => (
+                                <div key={i} className="bg-black/40 rounded-lg p-4 border border-gray-800">
+                                    <div className="text-[#00f2fe] font-bold text-xl mb-3 border-b border-gray-800 pb-2">{decData.decade}</div>
+                                    <div className="space-y-2">
+                                        {decData.data.slice(0, 4).map((m, j) => {
+                                            // Determine hue intensity based on count relative to decade max
+                                            const maxC = decData.data[0].count;
+                                            const intensity = 0.3 + (0.7 * (m.count / maxC));
+                                            return (
+                                                <div key={j} className="heat-cell flex justify-between items-center bg-[#8a2be2] rounded px-2 py-1" style={{opacity: intensity}}>
+                                                    <span className="text-[10px] font-bold text-white uppercase truncate pr-2" title={m.category}>{m.category}</span>
+                                                    <span className="text-xs font-mono text-white/80">{m.count}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* EXPLORER */}
+                    <div className="mb-16">
+                        <div className="flex justify-between items-center border-b border-gray-800 pb-4 mb-8">
+                            <h2 className="text-2xl font-bold text-white">Case File Explorer</h2>
+                            <div className="text-sm font-bold text-[#4facfe]">{filteredCases.length} Matching Cases</div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <div className="glass-card p-4 h-[700px] overflow-y-auto">
+                                {filteredCases.map(c => (
+                                    <div 
+                                        key={c.Encounter_ID} 
+                                        onClick={() => loadSequence(c.Encounter_ID)}
+                                        className={`p-4 mb-3 rounded-lg cursor-pointer transition-all ${selectedCase?.Encounter_ID === c.Encounter_ID ? 'bg-[#1a233a] border-l-4 border-[#00f2fe]' : 'hover:bg-[#10162a]'}`}
+                                    >
+                                        <div className="flex justify-between items-start">
+                                            <h4 className="font-bold text-white text-lg">Case {c.case_num}</h4>
+                                            {c.num_subjects > 1 && (
+                                                <span className="bg-[#8a2be2]/30 text-[#e2e8f0] text-[10px] px-2 py-1 rounded border border-[#8a2be2] flex gap-1 items-center" title="Multiple Experiencers">
+                                                    👨‍👩‍👧‍👦 x{c.num_subjects}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-2 flex justify-between items-center">
+                                            <span className="truncate pr-2">{c.subject}</span>
+                                            <span className="whitespace-nowrap bg-black text-gray-500 px-2 py-0.5 rounded">{c.date !== 'nan' ? c.date : 'Unknown Date'}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {filteredCases.length === 0 && (
+                                    <div className="text-center text-gray-500 mt-10 italic p-4">
+                                        No cases match the selected Matrix filters.
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="lg:col-span-2 glass-card p-8 h-[700px] flex flex-col relative">
+                                {!selectedCase ? (
+                                    <div className="flex-1 flex items-center justify-center text-gray-500 italic text-lg">
+                                        Select a designated case file from the registry to render its sequence telemetry.
+                                    </div>
+                                ) : (
+                                    <div className="flex-1 flex flex-col h-full fade-in">
+                                        <div className="mb-8 flex justify-between items-start border-b border-gray-800 pb-6">
+                                            <div>
+                                                <h3 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 mb-2">Case {selectedCase.case_num}</h3>
+                                                <p className="text-[#a0aec0] text-sm uppercase tracking-wider">{selectedCase.subject} • {selectedCase.location} • {selectedCase.date === 'nan' ? 'Unknown Date' : selectedCase.date}</p>
+                                                
+                                                {selectedCase.num_subjects > 1 && (
+                                                    <div className="mt-3 inline-block bg-[#8a2be2]/20 border border-[#8a2be2] text-[#e2e8f0] px-3 py-1 rounded text-xs font-bold uppercase tracking-widest text-glow">
+                                                        Warning: Multi-Experiencer Entity Encounter ({selectedCase.num_subjects} Subjects)
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <span className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg ${selectedCase.hypnosis ? 'bg-purple-900/60 text-purple-200 border border-purple-500' : 'bg-[#0a0e17] text-gray-300 border border-gray-700'}`}>
+                                                {selectedCase.hypnosis ? '🌀 Hypnosis Utilized' : '👁️ Conscious Recall'}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex-1 overflow-y-auto pr-4 space-y-8 pb-10 custom-scroll">
+                                            {sequence.map((event, i) => (
+                                                <div key={i} className="flex gap-6 group">
+                                                    <div className="flex flex-col items-center">
+                                                        <div className="w-10 h-10 rounded-full bg-[#10162a] border-2 border-[#00f2fe] shadow-[0_0_10px_rgba(0,242,254,0.3)] flex items-center justify-center text-sm font-bold text-white z-10 transition-transform group-hover:scale-110 group-hover:bg-[#00f2fe] group-hover:text-black">
+                                                            {event.seq}
+                                                        </div>
+                                                        {i !== sequence.length - 1 && <div className="w-0.5 h-full bg-gradient-to-b from-[#00f2fe] to-transparent my-2 opacity-30"></div>}
+                                                    </div>
+                                                    
+                                                    <div className="flex-1 pb-2">
+                                                        <div className="flex justify-between items-center mb-3">
+                                                            <div className="flex items-center gap-3">
+                                                                <span className="px-2 py-1 bg-black/60 border border-gray-700 rounded text-xs font-mono text-gray-300 tracking-wider shadow-inner">{event.code}</span>
+                                                                <span className="font-extrabold text-[#00d2ff] tracking-wide uppercase text-sm">{formatCategory(event.category)}</span>
+                                                            </div>
+                                                            <span className={`text-[10px] uppercase font-bold tracking-widest px-3 py-1 rounded-full ${event.memory === 'hypnosis' ? 'bg-[#8a2be2]/30 text-[#d4b3ff] border border-[#8a2be2]/50' : event.memory === 'conscious' ? 'bg-[#00f2fe]/20 text-[#00f2fe] border border-[#00f2fe]/50' : 'bg-gray-800 text-gray-500'}`}>
+                                                                {event.memory}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-white text-base font-light mb-3 leading-relaxed">{event.description}</p>
+                                                        <div className="p-4 bg-black/40 rounded-lg border-l-4 border-l-[#8a2be2] text-sm text-[#a0aec0] italic shadow-inner">
+                                                            "{event.citation}"
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<Dashboard />);
+    </script>
+</body>
+</html>
