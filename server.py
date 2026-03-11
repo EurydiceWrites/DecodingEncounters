@@ -62,6 +62,10 @@ def get_cases():
     cases_raw = [dict(row) for row in conn.execute(query).fetchall()]
     motifs_raw = conn.execute(motifs_query).fetchall()
     
+    # Get all cases that have a 'hypnosis' memory state
+    hyp_query = "SELECT DISTINCT Encounter_ID FROM Encounter_Events WHERE memory_state='hypnosis'"
+    hypnosis_cases = {r['Encounter_ID'] for r in conn.execute(hyp_query).fetchall()}
+
     # Group motifs by encounter
     encounter_motifs = {}
     for r in motifs_raw:
@@ -76,8 +80,11 @@ def get_cases():
         # Heuristic for multiple experiencers
         c['num_subjects'] = 1 + pseudo.count(' and ') + pseudo.count(',') + pseudo.count(' & ')
         
-        # Attach list of motif categories present in this case
         eid = c['Encounter_ID']
+        # Override empty Hypnosis_Utilized from phase 1 with our Phase 11 LLM context
+        c['hypnosis'] = 1 if eid in hypnosis_cases else 0
+        
+        # Attach list of motif categories present in this case
         c['motifs_present'] = list(encounter_motifs.get(eid, []))
 
     conn.close()
@@ -104,7 +111,6 @@ def get_heatmap():
         cat = str(r['category']).split('--')[-1].replace('.', '').strip()
         
         # Extract Decade
-        # Just grab the first 3 digits of a 4 digit year and add '0s'
         import re
         years = re.findall(r'19\d{2}|20\d{2}', date_str)
         if years:
