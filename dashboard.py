@@ -65,11 +65,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="title-glow">UAP Sequence Explorer</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">DECODING ENCOUNTERS USING THE BULLARD MOTIF TAXONOMY</div><br>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">MAPPING THE ARCHITECTURE OF HIGH-STRANGENESS ENCOUNTERS</div><br>', unsafe_allow_html=True)
 
-st.info("**Academic Framework & Methodology Disclaimer**  \n"
-        "This relational database is actively powered by the foundational Motif Taxonomy developed by **Dr. Thomas E. Bullard**, "
-        "and is heavily expanded through the psychiatric framework of **Dr. John E. Mack**.")
+st.markdown("""
+**Welcome to the UAP Matrix.**  
+Are experiencers reporting the exact same anomalous sequence of events across decades? To find out, this interactive database maps the structural DNA of 333 historical high-strangeness encounters. 
+
+**How to use this tool:**
+*   **Filter the Matrix:** Use the sidebar to zero in on specific types of encounters (e.g., cases involving multiple witnesses, or cases where hypnosis was used).
+*   **Explore Case Timelines:** Select a case from the dropdown below to see its full chronological "Motif Sequence"—a step-by-step breakdown of every specific event that occurred (e.g., *Paralysis, Telepathy, Immateriality*).
+*   **Discover Patterns:** Scroll to the bottom to view the Relational Analytics engine, which visualizes decades of recurring anomalies.
+""")
+
+with st.expander("🔬 Read about the Academic Methodology"):
+    st.info("This relational database is actively powered by the foundational Motif Taxonomy developed by **Dr. Thomas E. Bullard** (who categorized thousands of anecdotal reports into core architectural sequences), and is heavily expanded through the psychiatric framework of **Dr. John E. Mack**.")
 
 @st.cache_data
 def load_data():
