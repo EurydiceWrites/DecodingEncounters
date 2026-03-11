@@ -105,7 +105,7 @@
             // Filters
             const [filterMulti, setFilterMulti] = useState(false);
             const [filterMotifCat, setFilterMotifCat] = useState("ALL");
-            const [filterMotifCode, setFilterMotifCode] = useState("ALL");
+            const [filterMotifCodes, setFilterMotifCodes] = useState([]);
             const [filterHypnosis, setFilterHypnosis] = useState(false);
             const [searchQuery, setSearchQuery] = useState("");
             const [expandedCategory, setExpandedCategory] = useState(null);
@@ -145,10 +145,16 @@
                     if (filterMulti && c.num_subjects < 2) return false;
                     if (filterHypnosis && c.hypnosis !== 1) return false;
                     if (filterMotifCat !== "ALL" && (!c.motifs_present || !c.motifs_present.includes(filterMotifCat))) return false;
-                    if (filterMotifCode !== "ALL" && (!c.motifs_present_codes || !c.motifs_present_codes.includes(filterMotifCode))) return false;
+                    
+                    if (filterMotifCodes.length > 0) {
+                        // "OR" logic: Show case if it has AT LEAST ONE of the selected motif codes
+                        const hasSelectedMotif = filterMotifCodes.some(code => c.motifs_present_codes?.includes(code));
+                        if (!hasSelectedMotif) return false;
+                    }
+                    
                     return true;
                 });
-            }, [cases, filterMulti, filterMotifCat, filterMotifCode, filterHypnosis]);
+            }, [cases, filterMulti, filterMotifCat, filterMotifCodes, filterHypnosis]);
 
             const heatmapGrouped = useMemo(() => {
                 const grouped = {};
@@ -232,11 +238,11 @@
 
                     {/* NEW FILTERS ENGINE */}
                     <div className="glass-card p-6 mb-12 flex flex-wrap gap-4 items-center">
-                        <div className="font-bold text-gray-300 w-full mb-2 uppercase tracking-widest text-sm border-b border-gray-800 pb-2 flex justify-between">
+                        <div className="font-bold text-gray-300 w-full mb-2 uppercase tracking-widest text-sm border-b border-gray-800 pb-2 flex justify-between items-center">
                             <span>Global Matrix Filters</span>
-                            {filterMotifCode !== "ALL" && (
-                                <span className="text-[#00f2fe] text-xs px-2 py-0.5 border border-[#00f2fe]/30 rounded cursor-pointer hover:bg-[#00f2fe]/20" onClick={() => setFilterMotifCode("ALL")}>
-                                    Clear Exact Code Filter: {filterMotifCode} ✖
+                            {filterMotifCodes.length > 0 && (
+                                <span className="text-[#00f2fe] text-xs px-2 py-0.5 border border-[#00f2fe]/30 rounded cursor-pointer hover:bg-[#00f2fe]/20" onClick={() => setFilterMotifCodes([])}>
+                                    Clear Exact Code Slicer ({filterMotifCodes.length}) ✖
                                 </span>
                             )}
                         </div>
@@ -302,16 +308,25 @@
                                                 </div>
                                                 {isExpanded && (
                                                     <div className="p-2 space-y-1 bg-[#0a0e17]">
-                                                        {group.motifs.map(m => (
-                                                            <div 
-                                                                key={m.motif_number}
-                                                                onClick={() => setFilterMotifCode(m.motif_number === filterMotifCode ? "ALL" : m.motif_number)}
-                                                                className={`p-2 rounded border cursor-pointer transition-all ${filterMotifCode === m.motif_number ? 'bg-[#00f2fe]/20 border-[#00f2fe] text-[#00f2fe]' : 'bg-black border-gray-800 text-gray-400 hover:border-gray-500 hover:text-gray-200'}`}
-                                                            >
-                                                                <div className="font-mono text-[10px] font-bold mb-1">{m.motif_number}</div>
-                                                                <div className="text-[10px] leading-tight line-clamp-2">{m.motif_description}</div>
-                                                            </div>
-                                                        ))}
+                                                        {group.motifs.map(m => {
+                                                            const isSelected = filterMotifCodes.includes(m.motif_number);
+                                                            return (
+                                                                <div 
+                                                                    key={m.motif_number}
+                                                                    onClick={() => {
+                                                                        setFilterMotifCodes(prev => 
+                                                                            prev.includes(m.motif_number) 
+                                                                                ? prev.filter(code => code !== m.motif_number)
+                                                                                : [...prev, m.motif_number]
+                                                                        );
+                                                                    }}
+                                                                    className={`p-2 rounded border cursor-pointer transition-all ${isSelected ? 'bg-[#00f2fe]/20 border-[#00f2fe] text-[#00f2fe]' : 'bg-black border-gray-800 text-gray-400 hover:border-gray-500 hover:text-gray-200'}`}
+                                                                >
+                                                                    <div className="font-mono text-[10px] font-bold mb-1">{m.motif_number}</div>
+                                                                    <div className="text-[10px] leading-tight line-clamp-2">{m.motif_description}</div>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 )}
                                             </div>
@@ -378,9 +393,15 @@
                                                         <div className="flex justify-between items-center mb-3">
                                                             <div className="flex items-center gap-3">
                                                                 <span 
-                                                                    onClick={() => setFilterMotifCode(event.code === filterMotifCode ? "ALL" : event.code)} 
-                                                                    className={`px-2 py-1 border rounded text-xs font-mono tracking-wider shadow-inner motif-pill ${event.code === filterMotifCode ? 'active bg-[#00f2fe] text-black border-[#00f2fe]' : 'bg-black/60 border-gray-700 text-[#00f2fe]'}`}
-                                                                    title="Click to filter all cases by this specific Motif Code"
+                                                                    onClick={() => {
+                                                                        setFilterMotifCodes(prev => 
+                                                                            prev.includes(event.code) 
+                                                                                ? prev.filter(c => c !== event.code)
+                                                                                : [...prev, event.code]
+                                                                        );
+                                                                    }} 
+                                                                    className={`px-2 py-1 border rounded text-xs font-mono tracking-wider shadow-inner motif-pill ${filterMotifCodes.includes(event.code) ? 'active bg-[#00f2fe] text-black border-[#00f2fe]' : 'bg-black/60 border-gray-700 text-[#00f2fe]'}`}
+                                                                    title="Click to toggle filtering by this Motif Code"
                                                                 >
                                                                     {event.code}
                                                                 </span>
