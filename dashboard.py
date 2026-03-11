@@ -65,11 +65,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="title-glow">UAP Sequence Explorer</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">MAPPING THE ARCHITECTURE OF HIGH-STRANGENESS ENCOUNTERS</div><br>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">MAPPING THE ARCHITECTURE OF ANOMALOUS ENCOUNTERS</div><br>', unsafe_allow_html=True)
 
 st.markdown("""
 **Welcome to the UAP Matrix.**  
-Are experiencers reporting the exact same anomalous sequence of events across decades? To find out, this interactive database maps the structural DNA of 333 historical high-strangeness encounters. 
+Are experiencers reporting the exact same anomalous sequence of events across decades? To find out, this interactive database maps the structural DNA of 333 historical anomalous encounters. 
 
 **How to use this tool:**
 *   **Filter the Matrix:** Use the sidebar to zero in on specific types of encounters (e.g., cases involving multiple witnesses, or cases where hypnosis was used).
