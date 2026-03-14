@@ -47,7 +47,8 @@ def get_cases():
             e.Date_of_Encounter as date, 
             e.Location_Type as location, 
             e.Case_Number as case_num, 
-            s.Hypnosis_Utilized as hypnosis
+            s.Hypnosis_Utilized as hypnosis,
+            e.Source_Material as source
         FROM Encounters e
         JOIN Subjects s ON e.Subject_ID = s.Subject_ID
     """
@@ -93,6 +94,10 @@ def get_cases():
         # Attach list of motif categories present in this case
         c['motifs_present'] = list(encounter_motifs.get(eid, []))
         c['motifs_present_codes'] = list(encounter_motif_codes.get(eid, []))
+        
+        # Ensure 'source' defaults to Bullard if missing
+        if not c.get('source'):
+            c['source'] = 'Bullard'
 
     conn.close()
     return jsonify(cases_raw)

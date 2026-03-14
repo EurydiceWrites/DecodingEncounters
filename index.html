@@ -234,6 +234,7 @@
             const [filterMotifCat, setFilterMotifCat] = useState("ALL");
             const [filterMotifCodes, setFilterMotifCodes] = useState([]);
             const [filterHypnosis, setFilterHypnosis] = useState(false);
+            const [filterSource, setFilterSource] = useState("ALL");
             const [searchQuery, setSearchQuery] = useState("");
             const [expandedCategory, setExpandedCategory] = useState(null);
             const [showNetworkModal, setShowNetworkModal] = useState(false);
@@ -272,6 +273,7 @@
                 return cases.filter(c => {
                     if (filterMulti && c.num_subjects < 2) return false;
                     if (filterHypnosis && c.hypnosis !== 1) return false;
+                    if (filterSource !== "ALL" && c.source !== filterSource) return false;
                     if (filterMotifCat !== "ALL" && (!c.motifs_present || !c.motifs_present.includes(filterMotifCat))) return false;
                     
                     if (filterMotifCodes.length > 0) {
@@ -282,7 +284,7 @@
                     
                     return true;
                 });
-            }, [cases, filterMulti, filterMotifCat, filterMotifCodes, filterHypnosis]);
+            }, [cases, filterMulti, filterMotifCat, filterMotifCodes, filterHypnosis, filterSource]);
 
             const heatmapGrouped = useMemo(() => {
                 const grouped = {};
@@ -390,6 +392,19 @@
                         >
                             🌀 Memory Recovery (Hypnosis)
                         </button>
+
+                        <div className="flex items-center border border-gray-700 rounded-full px-4 py-2 bg-black/30">
+                            <span className="text-sm font-bold text-gray-400 mr-2">Data Source:</span>
+                            <select 
+                                className="bg-transparent text-[#39ff14] outline-none text-sm cursor-pointer appearance-none font-bold min-w-[120px]"
+                                value={filterSource}
+                                onChange={(e) => setFilterSource(e.target.value)}
+                            >
+                                <option value="ALL" className="bg-gray-900">All Sources</option>
+                                <option value="Bullard" className="bg-gray-900">Bullard Archive</option>
+                                <option value="Mack" className="bg-gray-900">John Mack Casework</option>
+                            </select>
+                        </div>
 
                         <div className="flex items-center border border-gray-700 rounded-full px-4 py-2 bg-black/30">
                             <span className="text-sm font-bold text-gray-400 mr-2">Core Category Contains:</span>
