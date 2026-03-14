@@ -169,6 +169,60 @@ def get_sequence(encounter_id):
     conn.close()
     return jsonify(events)
 
+@app.route('/api/network', methods=['GET'])
+def get_network():
+    conn = get_db()
+    query = """
+        SELECT ee.Encounter_ID, ee.Motif_Code, m.current_family_header, m.motif_description
+        FROM Encounter_Events ee
+        JOIN Motif_Dictionary m ON ee.Motif_Code = m.motif_number
+    """
+    raw_data = [dict(row) for row in conn.execute(query).fetchall()]
+    conn.close()
+    
+    import itertools
+    from collections import Counter
+    
+    encounters = {}
+    motif_meta = {}
+    
+    for r in raw_data:
+        eid = r['Encounter_ID']
+        mcode = r['Motif_Code']
+        cat = str(r['current_family_header']).split('--')[-1].replace('.', '').strip()
+        desc = r['motif_description']
+        
+        if eid not in encounters:
+            encounters[eid] = set()
+        encounters[eid].add(mcode)
+            
+        if mcode not in motif_meta:
+            motif_meta[mcode] = {'category': cat, 'description': desc}
+            
+    pair_counter = Counter()
+    for eid, motifs in encounters.items():
+        sorted_motifs = sorted(list(motifs))
+        for pair in itertools.combinations(sorted_motifs, 2):
+            pair_counter[pair] += 1
+            
+    nodes = []
+    for mcode, meta in motif_meta.items():
+        nodes.append({
+            "id": mcode,
+            "group": meta['category'],
+            "name": f"{mcode}: {meta['description']}"
+        })
+        
+    links = []
+    for (m1, m2), count in pair_counter.items():
+        links.append({
+            "source": m1,
+            "target": m2,
+            "value": count
+        })
+        
+    return jsonify({"nodes": nodes, "links": links})
+
 if __name__ == '__main__':
     print("UFO Matrix API Server running on port 5000")
     app.run(port=5000, debug=False)
