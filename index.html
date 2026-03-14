@@ -99,7 +99,7 @@
 
         const ForceGraph2D = window.ForceGraph2D || window.ReactForceGraph2d;
 
-        const NetworkChart = ({ data, onClose }) => {
+        const NetworkChart = ({ data, onClose, onNodeClick }) => {
             const [dimensions, setDimensions] = useState({ 
                 width: Math.min(window.innerWidth * 0.9, 1400), 
                 height: Math.min(window.innerHeight * 0.9, 900) 
@@ -206,27 +206,13 @@
                             backgroundColor="transparent"
                             enableNodeDrag={true}
                             enableZoomPanInteraction={true}
+                            onNodeClick={(node) => {
+                                if (onNodeClick) {
+                                    onNodeClick(node.id);
+                                }
+                            }}
                         />
-
-                        {/* Anchored Slider directly below the Graph */}
-                        <div className="z-[60] bg-black/80 p-5 border border-gray-700 rounded-xl backdrop-blur-md shadow-[0_0_30px_rgba(0,0,0,0.8)] min-w-[350px] mt-4">
-                            <h2 className="text-xl font-extrabold text-white tracking-widest leading-none mb-1 text-center">FILTER NOISE</h2>
-                            <p className="text-gray-400 text-xs mb-4 text-center">Drag slider to reveal the core UFO Matrix architecture.</p>
-                            
-                            <div className="flex flex-col gap-3 items-center">
-                                <label className="text-sm font-bold text-[#00f2fe] uppercase tracking-widest text-center">
-                                    MINIMUM OCCURRENCES: {minStrength}
-                                </label>
-                                <input 
-                                    type="range" 
-                                    min="1" 
-                                    max="50" 
-                                    value={minStrength} 
-                                    onChange={(e) => setMinStrength(parseInt(e.target.value))}
-                                    className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-800 accent-[#00f2fe]"
-                                />
-                            </div>
-                        </div>
+                        
                     </div>
                 </div>
             );
@@ -620,6 +606,14 @@
                         <NetworkChart 
                             data={UAP_DATA.network} 
                             onClose={() => setShowNetworkModal(false)}
+                            onNodeClick={(code) => {
+                                setFilterMotifCodes(prev => 
+                                    prev.includes(code) 
+                                        ? prev.filter(c => c !== code)
+                                        : [...prev, code]
+                                );
+                                setShowNetworkModal(false);
+                            }}
                         />
                     )}
 
